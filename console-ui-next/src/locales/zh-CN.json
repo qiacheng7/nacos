@@ -67,6 +67,7 @@
     "detail": "详情",
     "save": "保存",
     "bizTags": "业务标签",
+    "from": "来源",
     "back": "返回",
     "success": "操作成功",
     "failed": "操作失败",
@@ -78,6 +79,9 @@
     "version": "版本",
     "pageSize": "每页条数",
     "selectNamespace": "命名空间",
+    "sessionExpired": "会话已过期，请重新登录",
+    "noPermission": "无权限执行此操作",
+    "requestFailed": "请求失败",
     "versionLabels": {
       "title": "版本标签",
       "noLabels": "暂无版本标签",
@@ -101,7 +105,12 @@
       "description": "编辑业务标签列表。"
     },
     "cliUsage": {
-      "title": "CLI 获取命令",
+      "title": "安装",
+      "cliInstall": "CLI 安装",
+      "cliDoc": "CLI 使用文档",
+      "downloadFile": "下载文件",
+      "manualDownload": "手动下载",
+      "downloadZip": "下载 .zip 文件",
       "description": "通过 Nacos CLI 在本地获取当前资源，需先安装 Node.js。",
       "copied": "命令已复制",
       "latest": "获取最新版本",
@@ -240,6 +249,7 @@
     "ephemeral": "临时服务",
     "deleteConfirm": "确定要删除服务 {{name}} 吗？",
     "deleteSuccess": "服务删除成功",
+        "deleteHasInstances": "服务下存在实例，无法删除。请先注销所有实例后再试。",
     "createSuccess": "服务创建成功",
     "updateSuccess": "服务更新成功",
     "totalServices": "共 {{total}} 个服务",
@@ -888,6 +898,7 @@
     "versionStatus": {
       "draft": "草稿",
       "reviewing": "审核中",
+      "pendingPublish": "待发布",
       "online": "已上线",
       "offline": "已下线"
     },
@@ -924,6 +935,7 @@
     "newVersion": "新建版本",
     "createDraft": "创建草稿",
     "createDraftFrom": "基于此版本创建草稿",
+    "draftExistsTip": "已存在草稿/未发布版本",
     "createDraftSuccess": "草稿创建成功",
     "deleteDraft": "删除草稿",
     "editDraft": "编辑草稿",
@@ -985,6 +997,7 @@
     "versionStatus": {
       "draft": "草稿",
       "reviewing": "审核中",
+      "pendingPublish": "待发布",
       "online": "已上线",
       "offline": "已下线"
     },
@@ -1090,6 +1103,7 @@
     "newVersionRequired": "新版本号不能为空",
     "versionInvalid": "版本号格式不正确，格式为 x.y.z 或 vN",
     "versionMustGreater": "新版本号必须大于当前版本 {{current}}",
+    "draftExistsTip": "已存在草稿/未发布版本",
     "bizTagsUpdateSuccess": "业务标签更新成功",
     "bizTagPlaceholder": "添加标签",
     "noBizTags": "暂无业务标签",

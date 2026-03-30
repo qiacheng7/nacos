@@ -67,6 +67,7 @@
     "detail": "Detail",
     "save": "Save",
     "bizTags": "Tags",
+    "from": "Source",
     "back": "Back",
     "success": "Success",
     "failed": "Failed",
@@ -78,6 +79,9 @@
     "version": "Version",
     "pageSize": "Page Size",
     "selectNamespace": "Namespace",
+    "sessionExpired": "Session expired, please login again",
+    "noPermission": "No permission to perform this operation",
+    "requestFailed": "Request failed",
     "versionLabels": {
       "title": "Version Labels",
       "noLabels": "No version labels",
@@ -101,7 +105,12 @@
       "description": "Edit the business tag list."
     },
     "cliUsage": {
-      "title": "CLI Command",
+      "title": "Install",
+      "cliInstall": "CLI Install",
+      "cliDoc": "CLI Documentation",
+      "downloadFile": "Download File",
+      "manualDownload": "Manual Download",
+      "downloadZip": "Download .zip",
       "description": "Get this resource locally via Nacos CLI. Requires Node.js.",
       "copied": "Command copied",
       "latest": "Get latest",
@@ -240,6 +249,7 @@
     "ephemeral": "Ephemeral",
     "deleteConfirm": "Delete service {{name}}?",
     "deleteSuccess": "Service deleted",
+        "deleteHasInstances": "Service has active instances and cannot be deleted. Please deregister all instances first.",
     "createSuccess": "Service created",
     "updateSuccess": "Service updated",
     "totalServices": "{{total}} services",
@@ -888,6 +898,7 @@
     "versionStatus": {
       "draft": "Draft",
       "reviewing": "Reviewing",
+      "pendingPublish": "Pending Publish",
       "online": "Online",
       "offline": "Offline"
     },
@@ -924,6 +935,7 @@
     "newVersion": "New Version",
     "createDraft": "Create Draft",
     "createDraftFrom": "Create draft from this version",
+    "draftExistsTip": "A draft or unpublished version already exists",
     "createDraftSuccess": "Draft created",
     "deleteDraft": "Delete Draft",
     "editDraft": "Edit Draft",
@@ -985,6 +997,7 @@
     "versionStatus": {
       "draft": "Draft",
       "reviewing": "Reviewing",
+      "pendingPublish": "Pending Publish",
       "online": "Online",
       "offline": "Offline"
     },
@@ -1090,6 +1103,7 @@
     "newVersionRequired": "New version is required",
     "versionInvalid": "Invalid version format, should be x.y.z or vN",
     "versionMustGreater": "New version must be greater than current version {{current}}",
+    "draftExistsTip": "A draft or unpublished version already exists",
     "bizTagsUpdateSuccess": "Tags updated",
     "bizTagPlaceholder": "Add a tag",
     "noBizTags": "No tags",

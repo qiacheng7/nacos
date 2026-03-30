@@ -510,7 +510,8 @@ class SkillZipParserTest {
         assertNotNull(skill);
         assertEquals("test-skill", skill.getName());
         assertEquals("Test skill description", skill.getDescription());
-        assertEquals("This is a test instruction", skill.getSkillMd().trim());
+        assertEquals("---\n" + "name: test-skill\n" + "description: Test skill description\n" + "---\n" + "\n"
+                + "This is a test instruction", skill.getSkillMd().trim());
     }
     
     @Test

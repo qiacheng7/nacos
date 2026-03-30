@@ -73,6 +73,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.Executor;
@@ -111,7 +112,7 @@ public class SkillOperationServiceImpl implements SkillOperationService {
 
     private static final String VERSION_STATUS_ONLINE = "online";
 
-    private static final String DEFAULT_AUTHOR = "nacos";
+    private static final String DEFAULT_AUTHOR = "-";
 
     private static final String VERSION_STATUS_DRAFT = "draft";
 
@@ -198,6 +199,11 @@ public class SkillOperationServiceImpl implements SkillOperationService {
 
     @Override
     public void bootstrapSkillFromZip(String namespaceId, byte[] zipBytes) throws NacosException {
+        bootstrapSkillFromZip(namespaceId, zipBytes, null);
+    }
+
+    @Override
+    public void bootstrapSkillFromZip(String namespaceId, byte[] zipBytes, String from) throws NacosException {
         Skill skill = SkillZipParser.parseSkillFromZip(zipBytes, namespaceId);
         if (skill == null || StringUtils.isBlank(skill.getName())) {
             throw new NacosApiException(NacosException.INVALID_PARAM, ErrorCode.PARAMETER_MISSING, "Skill name is required");
@@ -236,6 +242,7 @@ public class SkillOperationServiceImpl implements SkillOperationService {
         meta.setStatus(META_STATUS_ENABLE);
         meta.setDesc(skill.getDescription());
         meta.setOwner(DEFAULT_AUTHOR);
+        meta.setFrom(from);
         meta.setScope(VisibilityConstants.SCOPE_PUBLIC);
         meta.setVersionInfo(JacksonUtils.toJson(versionInfo));
         meta.setMetaVersion(1L);
@@ -531,6 +538,7 @@ public class SkillOperationServiceImpl implements SkillOperationService {
         detail.setDescription(meta.getDesc());
         detail.setEnable(META_STATUS_ENABLE.equalsIgnoreCase(meta.getStatus()));
         detail.setBizTags(meta.getBizTags());
+        detail.setFrom(meta.getFrom());
         detail.setEditingVersion(versionInfo.getEditingVersion());
         detail.setReviewingVersion(versionInfo.getReviewingVersion());
         detail.setLabels(versionInfo.getLabels());
@@ -641,6 +649,7 @@ public class SkillOperationServiceImpl implements SkillOperationService {
             item.setDescription(meta.getDesc());
             item.setEnable(META_STATUS_ENABLE.equalsIgnoreCase(meta.getStatus()));
             item.setBizTags(meta.getBizTags());
+            item.setFrom(meta.getFrom());
             item.setScope(resolveScope(meta));
             item.setUpdateTime(meta.getGmtModified() == null ? null : meta.getGmtModified().getTime());
             item.setDownloadCount(meta.getDownloadCount());
@@ -834,14 +843,16 @@ public class SkillOperationServiceImpl implements SkillOperationService {
         ctx.setVersion(finalTarget);
         ctx.setFiles(buildPipelineFiles(skill));
 
-        // Execute asynchronously via standard pipeline engine.
-        String executionId = publishPipelineExecutor.execute(ctx,
-                result -> onPipelineComplete(namespaceId, name, finalTarget, result));
-        if (StringUtils.isBlank(executionId)) {
+        // Check pipeline availability before starting async execution.
+        if (!publishPipelineExecutor.isPipelineAvailable(ctx.getResourceType())) {
             // Pipeline disabled or no matched nodes -> publish directly.
             publish(namespaceId, name, finalTarget, true);
             return finalTarget;
         }
+        
+        // Pre-generate executionId and write IN_PROGRESS pipelineInfo BEFORE starting async task
+        // to eliminate the race condition where async callback could complete before pipelineInfo is written.
+        String executionId = UUID.randomUUID().toString();
 
         // Record pipeline execution id.
         SkillPublishPipelineInfo pipelineInfo = new SkillPublishPipelineInfo();
@@ -850,6 +861,17 @@ public class SkillOperationServiceImpl implements SkillOperationService {
         pipelineInfo.setPipeline(new ArrayList<>());
         aiResourceVersionPersistService.updatePublishPipelineInfo(namespaceId, name, RESOURCE_TYPE_SKILL, finalTarget,
                 JacksonUtils.toJson(pipelineInfo));
+
+        // Start async pipeline with pre-generated executionId.
+        String result = publishPipelineExecutor.execute(ctx,
+                r -> onPipelineComplete(namespaceId, name, finalTarget, r), executionId);
+        if (StringUtils.isBlank(result)) {
+            // Edge case: pipeline became unavailable between isPipelineAvailable check and execute.
+            // Clean up pipelineInfo and publish directly.
+            aiResourceVersionPersistService.updatePublishPipelineInfo(namespaceId, name, RESOURCE_TYPE_SKILL,
+                    finalTarget, null);
+            publish(namespaceId, name, finalTarget, true);
+        }
 
         return finalTarget;
     }
@@ -918,6 +940,24 @@ public class SkillOperationServiceImpl implements SkillOperationService {
         AiResource meta = requireMeta(namespaceId, name);
         VisibilityHelper.checkWritableResource(meta);
         SkillVersionInfo info = requireVersionInfo(meta);
+        // Validate: labels must not point to draft or reviewing versions
+        if (labels != null) {
+            String editing = info.getEditingVersion();
+            String reviewing = info.getReviewingVersion();
+            for (Map.Entry<String, String> entry : labels.entrySet()) {
+                String targetVersion = entry.getValue();
+                if (StringUtils.isNotBlank(editing) && editing.equals(targetVersion)) {
+                    throw new NacosApiException(NacosException.INVALID_PARAM,
+                            ErrorCode.PARAMETER_VALIDATE_ERROR,
+                            "Label '" + entry.getKey() + "' cannot point to draft version: " + targetVersion);
+                }
+                if (StringUtils.isNotBlank(reviewing) && reviewing.equals(targetVersion)) {
+                    throw new NacosApiException(NacosException.INVALID_PARAM,
+                            ErrorCode.PARAMETER_VALIDATE_ERROR,
+                            "Label '" + entry.getKey() + "' cannot point to reviewing version: " + targetVersion);
+                }
+            }
+        }
         info.setLabels(labels == null ? null : new LinkedHashMap<>(labels));
         updateMetaVersionInfoCas(namespaceId, meta, info);
 

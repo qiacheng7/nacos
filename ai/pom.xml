@@ -34,11 +34,7 @@
             <groupId>com.alibaba.nacos</groupId>
             <artifactId>nacos-common</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.alibaba.nacos</groupId>
-            <artifactId>nacos-ai-plugin</artifactId>
-            <version>${revision}</version>
-        </dependency>
+
         <dependency>
             <groupId>com.alibaba.nacos</groupId>
             <artifactId>nacos-naming</artifactId>
@@ -64,12 +60,6 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-test-autoconfigure</artifactId>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
-            <groupId>net.jqwik</groupId>
-            <artifactId>jqwik</artifactId>
-            <version>1.9.2</version>
             <scope>test</scope>
         </dependency>
         <dependency>

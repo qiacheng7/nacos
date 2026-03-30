@@ -67,6 +67,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * AgentSpec operation service implementation. Mirrors {@code SkillOperationServiceImpl} with AgentSpec types.
@@ -229,6 +230,7 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
         detail.setName(meta.getName());
         detail.setDescription(meta.getDesc());
         detail.setBizTags(meta.getBizTags());
+        detail.setFrom(meta.getFrom());
         detail.setEnable(META_STATUS_ENABLE.equalsIgnoreCase(meta.getStatus()));
         detail.setScope(resolveScope(meta));
         detail.setEditingVersion(versionInfo.getEditingVersion());
@@ -319,6 +321,7 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
                 item.setDescription(meta.getDesc());
                 item.setEnable(META_STATUS_ENABLE.equalsIgnoreCase(meta.getStatus()));
                 item.setBizTags(meta.getBizTags());
+                item.setFrom(meta.getFrom());
                 item.setScope(resolveScope(meta));
                 item.setUpdateTime(meta.getGmtModified() == null ? null : meta.getGmtModified().getTime());
                 item.setDownloadCount(meta.getDownloadCount());
@@ -400,6 +403,11 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
     
     @Override
     public void bootstrapAgentSpecFromZip(String namespaceId, byte[] zipBytes) throws NacosException {
+        bootstrapAgentSpecFromZip(namespaceId, zipBytes, null);
+    }
+
+    @Override
+    public void bootstrapAgentSpecFromZip(String namespaceId, byte[] zipBytes, String from) throws NacosException {
         AgentSpec agentSpec = AgentSpecZipParser.parseAgentSpecFromZip(zipBytes, namespaceId);
         if (agentSpec == null || StringUtils.isBlank(agentSpec.getName())) {
             throw new NacosApiException(NacosException.INVALID_PARAM, ErrorCode.PARAMETER_MISSING,
@@ -445,6 +453,7 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
         meta.setDesc(agentSpec.getDescription());
         meta.setBizTags(agentSpec.getBizTags());
         meta.setOwner(DEFAULT_AUTHOR);
+        meta.setFrom(from);
         meta.setScope(VisibilityConstants.SCOPE_PUBLIC);
         meta.setVersionInfo(JacksonUtils.toJson(versionInfo));
         meta.setMetaVersion(1L);
@@ -747,15 +756,18 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
             }
         });
         
-        String executionId = publishPipelineExecutor.execute(ctx,
-                result -> onPipelineComplete(namespaceId, name, finalTarget, result));
-        if (StringUtils.isBlank(executionId)) {
+        // Check pipeline availability before starting async execution.
+        if (!publishPipelineExecutor.isPipelineAvailable(ctx.getResourceType())) {
             // Pipeline disabled or no matched nodes -> publish directly.
             directPublishWithoutPipeline(namespaceId, meta, info, name, finalTarget, true);
             return finalTarget;
         }
         
-        // Move to reviewing and record pipeline execution id
+        // Pre-generate executionId and write IN_PROGRESS pipelineInfo BEFORE starting async task
+        // to eliminate the race condition where async callback could complete before pipelineInfo is written.
+        String executionId = UUID.randomUUID().toString();
+        
+        // Move to reviewing state
         aiResourceVersionPersistService.updateStatus(namespaceId, name, RESOURCE_TYPE_AGENTSPEC, finalTarget,
                 VERSION_STATUS_REVIEWING);
         info.setEditingVersion(null);
@@ -768,6 +780,17 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
         pipelineInfo.setPipeline(new ArrayList<>());
         aiResourceVersionPersistService.updatePublishPipelineInfo(namespaceId, name, RESOURCE_TYPE_AGENTSPEC,
                 finalTarget, JacksonUtils.toJson(pipelineInfo));
+        
+        // Start async pipeline with pre-generated executionId
+        String result = publishPipelineExecutor.execute(ctx,
+                r -> onPipelineComplete(namespaceId, name, finalTarget, r), executionId);
+        if (StringUtils.isBlank(result)) {
+            // Edge case: pipeline became unavailable between isPipelineAvailable check and execute.
+            // Clean up pipelineInfo and publish directly.
+            aiResourceVersionPersistService.updatePublishPipelineInfo(namespaceId, name, RESOURCE_TYPE_AGENTSPEC,
+                    finalTarget, null);
+            directPublishWithoutPipeline(namespaceId, meta, info, name, finalTarget, true);
+        }
         
         return finalTarget;
     }
@@ -852,6 +875,24 @@ public class AgentSpecOperationServiceImpl implements AgentSpecOperationService 
         AiResource meta = requireMeta(namespaceId, name);
         VisibilityHelper.checkWritableResource(meta);
         AgentSpecVersionInfo info = requireVersionInfo(meta);
+        // Validate: labels must not point to draft or reviewing versions
+        if (labels != null) {
+            String editing = info.getEditingVersion();
+            String reviewing = info.getReviewingVersion();
+            for (Map.Entry<String, String> entry : labels.entrySet()) {
+                String targetVersion = entry.getValue();
+                if (StringUtils.isNotBlank(editing) && editing.equals(targetVersion)) {
+                    throw new NacosApiException(NacosException.INVALID_PARAM,
+                            ErrorCode.PARAMETER_VALIDATE_ERROR,
+                            "Label '" + entry.getKey() + "' cannot point to draft version: " + targetVersion);
+                }
+                if (StringUtils.isNotBlank(reviewing) && reviewing.equals(targetVersion)) {
+                    throw new NacosApiException(NacosException.INVALID_PARAM,
+                            ErrorCode.PARAMETER_VALIDATE_ERROR,
+                            "Label '" + entry.getKey() + "' cannot point to reviewing version: " + targetVersion);
+                }
+            }
+        }
         info.setLabels(labels == null ? null : new LinkedHashMap<>(labels));
         updateMetaVersionInfoCas(namespaceId, meta, info);
     }

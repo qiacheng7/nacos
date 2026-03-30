@@ -1,9 +1,10 @@
-import { useEffect, useCallback, useState, useMemo } from 'react';
+import { useEffect, useCallback, useState, useMemo, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import remarkFrontmatter from 'remark-frontmatter';
 import {
   ArrowLeft,
   History,
@@ -25,6 +26,7 @@ import {
   Plus,
   Sparkles,
   AlertTriangle,
+  AlertCircle,
   Lock,
   Loader2,
 } from 'lucide-react';
@@ -36,6 +38,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip';
 import MDEditor from '@uiw/react-md-editor';
 import {
   Select,
@@ -65,7 +68,7 @@ import { skillApi } from '@/api/skill';
 import type { SkillDocument, SkillResource, SkillVersionSummary } from '@/types/skill';
 import { parseBizTags, parsePipelineInfo } from '@/types/skill';
 import { cn } from '@/lib/utils';
-import { stripFrontmatter } from '@/lib/markdown-utils';
+import { parseFrontmatter, updateFrontmatterField } from '@/lib/markdown-utils';
 import dayjs from 'dayjs';
 
 import { SkillVersionTimeline } from '../skillManagement/components/SkillVersionTimeline';
@@ -101,6 +104,36 @@ export default function SkillDetailPage() {
   const [selectedVersion, setSelectedVersion] = useState<string>('');
   const [versionDoc, setVersionDoc] = useState<SkillDocument | null>(null);
   const [docLoading, setDocLoading] = useState(false);
+
+  // Ref to prevent circular updates between description textarea and md editor frontmatter
+  const syncSourceRef = useRef<'description' | 'instruction' | null>(null);
+
+  // Handler: MD editor content changed -> extract description from frontmatter & protect name
+  const handleInstructionChange = useCallback((val: string | undefined) => {
+    let newVal = val || '';
+    const fm = parseFrontmatter(newVal);
+    // Protect name: revert to original skillName if user changed it
+    if (fm.name !== undefined && fm.name !== skillName) {
+      newVal = updateFrontmatterField(newVal, 'name', skillName);
+    }
+    setEditInstruction(newVal);
+    if (syncSourceRef.current === 'description') return;
+    syncSourceRef.current = 'instruction';
+    if (fm.description !== undefined) {
+      setEditDescription(fm.description);
+    }
+    // Reset after microtask to allow the other side to update freely
+    queueMicrotask(() => { syncSourceRef.current = null; });
+  }, [skillName]);
+
+  // Handler: description textarea changed -> update frontmatter in md editor
+  const handleDescriptionChange = useCallback((newDesc: string) => {
+    setEditDescription(newDesc);
+    if (syncSourceRef.current === 'instruction') return;
+    syncSourceRef.current = 'description';
+    setEditInstruction((prev) => updateFrontmatterField(prev, 'description', newDesc));
+    queueMicrotask(() => { syncSourceRef.current = null; });
+  }, []);
 
   // Draft editing state
   const [isEditingDraft, setIsEditingDraft] = useState(false);
@@ -310,10 +343,8 @@ export default function SkillDetailPage() {
     setScopeToggling(true);
     try {
       const newScope = currentDetail.scope === 'PUBLIC' ? 'PRIVATE' : 'PUBLIC';
-      const res = await skillApi.updateScope({ namespaceId, skillName, scope: newScope });
-      if (res.code === 0) {
-        toast.success(t('skill.scopeUpdateSuccess'));
-      }
+      await skillApi.updateScope({ namespaceId, skillName, scope: newScope });
+      toast.success(t('skill.scopeUpdateSuccess'));
       await loadDetail();
     } catch {
       // handled by interceptor
@@ -516,26 +547,12 @@ export default function SkillDetailPage() {
 
   // Build CLI commands for current skill (must be before early returns to keep hooks order stable)
   const cliCommands = useMemo(() => {
-    const cmds: { label: string; command: string }[] = [];
-    cmds.push({
-      label: t('common.cliUsage.latest'),
-      command: `npx @nacos-group/cli skill-get ${skillName}`,
-    });
-    if (selectedVersion) {
-      cmds.push({
-        label: t('common.cliUsage.byVersion'),
-        command: `npx @nacos-group/cli skill-get ${skillName} --version ${selectedVersion}`,
-      });
-    }
-    const detailLatest = currentDetail?.labels?.latest;
-    if (detailLatest) {
-      cmds.push({
-        label: t('common.cliUsage.byLabel'),
-        command: `npx @nacos-group/cli skill-get ${skillName} --label latest`,
-      });
-    }
-    return cmds;
-  }, [skillName, selectedVersion, currentDetail?.labels?.latest, t]);
+    const versionFlag = selectedVersion ? ` --version ${selectedVersion}` : '';
+    return [{
+      label: t('common.cliUsage.cliInstall'),
+      command: `npx @nacos-group/cli skill-get ${skillName}${versionFlag}`,
+    }];
+  }, [skillName, selectedVersion, t]);
 
   // ===== Loading skeleton =====
   if (detailLoading && !currentDetail) {
@@ -644,7 +661,10 @@ export default function SkillDetailPage() {
                     <SelectValue placeholder={t('skill.selectVersion')} />
                   </SelectTrigger>
                   <SelectContent>
-                    {versionOptions.map((version) => (
+                    {versionOptions.map((version) => {
+                      const vPipeline = parsePipelineInfo(version.publishPipelineInfo);
+                      const isVersionPendingPublish = version.status === 'reviewing' && vPipeline?.status === 'APPROVED';
+                      return (
                       <SelectItem key={version.version} value={version.version}>
                         <span className="flex items-center gap-2">
                           <span>{version.version}</span>
@@ -658,9 +678,18 @@ export default function SkillDetailPage() {
                               {t('skill.versionStatus.draft')}
                             </Badge>
                           )}
+                          {version.status === 'reviewing' && (
+                            <Badge className={isVersionPendingPublish
+                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-950/50 dark:text-teal-300 text-[10px] px-1 py-0 border-0'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-950/50 dark:text-blue-300 text-[10px] px-1 py-0 border-0'
+                            }>
+                              {t(isVersionPendingPublish ? 'skill.versionStatus.pendingPublish' : 'skill.versionStatus.reviewing')}
+                            </Badge>
+                          )}
                         </span>
                       </SelectItem>
-                    ))}
+                      );
+                    })}
                   </SelectContent>
                 </Select>
               )}
@@ -675,18 +704,6 @@ export default function SkillDetailPage() {
                 <History className="mr-1 h-3 w-3" />
                 {t('skill.versionHistory')}
               </Button>
-
-              {selectedVersion && currentVersionStatus !== 'draft' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="h-7 text-xs"
-                  onClick={() => handleDownload(selectedVersion)}
-                >
-                  <Download className="mr-1 h-3 w-3" />
-                  {t('skill.download')}
-                </Button>
-              )}
             </div>
           </div>
 
@@ -742,7 +759,7 @@ export default function SkillDetailPage() {
               {isEditingDraft ? (
                 <Textarea
                   value={editDescription}
-                  onChange={(e) => setEditDescription(e.target.value)}
+                  onChange={(e) => handleDescriptionChange(e.target.value)}
                   placeholder={t('skill.descPlaceholder')}
                   className="text-sm max-w-2xl min-h-8 resize-none"
                 />
@@ -768,6 +785,12 @@ export default function SkillDetailPage() {
                   <span className="inline-flex items-center gap-1">
                     <Clock className="h-3 w-3" />
                     {dayjs(detail.updateTime).format('YYYY-MM-DD HH:mm')}
+                  </span>
+                )}
+                {detail.from && (
+                  <span className="inline-flex items-center gap-1">
+                    <Tag className="h-3 w-3" />
+                    {t('common.from')}: {detail.from}
                   </span>
                 )}
               </div>
@@ -904,20 +927,35 @@ export default function SkillDetailPage() {
                     </Button>
                   )}
 
-                  {/* Create new draft (when viewing online/offline and no editing/reviewing version) */}
-                  {(currentVersionStatus === 'online' || currentVersionStatus === 'offline') &&
-                    !detail.editingVersion && !detail.reviewingVersion && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="h-7 text-xs gap-1.5"
-                      disabled={actionLoading}
-                      onClick={() => handleCreateDraft(selectedVersion)}
-                    >
-                      <Plus className="h-3 w-3" />
-                      {t('skill.createDraftFrom')}
-                    </Button>
-                  )}
+                  {/* Create new draft (when viewing online/offline version) */}
+                  {(currentVersionStatus === 'online' || currentVersionStatus === 'offline') && (() => {
+                    const hasDraft = !!(detail.editingVersion || detail.reviewingVersion);
+                    const btn = (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-7 text-xs gap-1.5"
+                        disabled={actionLoading || hasDraft}
+                        onClick={() => handleCreateDraft(selectedVersion)}
+                      >
+                        <Plus className="h-3 w-3" />
+                        {t('skill.createDraftFrom')}
+                      </Button>
+                    );
+                    return hasDraft ? (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span>{btn}</span>
+                        </TooltipTrigger>
+                        <TooltipContent className="bg-amber-50 border border-amber-200 text-amber-800 dark:bg-amber-950 dark:border-amber-800 dark:text-amber-200">
+                          <span className="flex items-center gap-1.5">
+                            <AlertCircle className="h-3 w-3 shrink-0" />
+                            {t('skill.draftExistsTip')}
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                    ) : btn;
+                  })()}
                   </div>
                 </div>
               )}
@@ -989,7 +1027,7 @@ export default function SkillDetailPage() {
         <TabsContent value="overview">
           <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
             {/* Left: Instruction card */}
-            <Card className="overflow-hidden py-0 gap-0">
+            <Card className="overflow-hidden py-0 gap-0 min-h-[580px]">
               <div className="px-5 py-3.5 border-b bg-muted/30">
                 <h2 className="text-sm font-semibold flex items-center gap-2">
                   <FileText className="h-4 w-4 text-muted-foreground" />
@@ -1009,24 +1047,26 @@ export default function SkillDetailPage() {
                     <div data-color-mode="light" className="dark:hidden">
                       <MDEditor
                         value={editInstruction}
-                        onChange={(val) => setEditInstruction(val || '')}
+                        onChange={handleInstructionChange}
                         height={500}
                         preview="live"
+                        previewOptions={{ remarkPlugins: [remarkGfm, remarkFrontmatter] }}
                       />
                     </div>
                     <div data-color-mode="dark" className="hidden dark:block">
                       <MDEditor
                         value={editInstruction}
-                        onChange={(val) => setEditInstruction(val || '')}
+                        onChange={handleInstructionChange}
                         height={500}
                         preview="live"
+                        previewOptions={{ remarkPlugins: [remarkGfm, remarkFrontmatter] }}
                       />
                     </div>
                   </div>
                 ) : versionDoc?.skillMd ? (
                   <div className="app-markdown prose prose-sm dark:prose-invert max-w-none">
-                    <Markdown remarkPlugins={[remarkGfm]}>
-                      {stripFrontmatter(versionDoc.skillMd)}
+                    <Markdown remarkPlugins={[remarkGfm, remarkFrontmatter]}>
+                      {versionDoc.skillMd}
                     </Markdown>
                   </div>
                 ) : (
@@ -1037,7 +1077,11 @@ export default function SkillDetailPage() {
 
             {/* Right: Sidebar */}
             <div className="space-y-4 lg:w-[320px]">
-              <CliCommandCard commands={cliCommands} />
+              <CliCommandCard
+                commands={currentVersionStatus !== 'draft' ? cliCommands : []}
+                onDownload={selectedVersion ? () => handleDownload(selectedVersion) : undefined}
+                downloadFileName={selectedVersion ? `${skillName}-${selectedVersion}.zip` : undefined}
+              />
 
               {/* Basic info card */}
               <Card className="overflow-hidden py-0 gap-0">
@@ -1116,7 +1160,7 @@ export default function SkillDetailPage() {
                     <Tag className="h-4 w-4 text-muted-foreground" />
                     {t('common.versionLabels.title')}
                   </h2>
-                  {selectedVersion && (
+                  {selectedVersion && currentVersionStatus !== 'draft' && currentVersionStatus !== 'reviewing' && (
                     <Button
                       variant="ghost"
                       size="icon"
@@ -1148,116 +1192,11 @@ export default function SkillDetailPage() {
 
         {/* Resources tab: IDE-like resource panel */}
         <TabsContent value="resources">
-          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <SkillResourcePanel
-              resources={isEditingDraft ? editResources : resources}
-              editable={isEditingDraft}
-              onChange={isEditingDraft ? setEditResources : undefined}
-            />
-            <div className="space-y-4 lg:w-[320px]">
-              <CliCommandCard commands={cliCommands} />
-
-              <Card className="overflow-hidden py-0 gap-0">
-                <div className="px-4 py-3 border-b bg-muted/30">
-                  <h2 className="text-sm font-semibold flex items-center gap-2">
-                    <Wand2 className="h-4 w-4 text-muted-foreground" />
-                    {t('skill.basicInfo')}
-                  </h2>
-                </div>
-                <CardContent className="p-0">
-                  <div className="grid grid-cols-2 [&>*:nth-child(n+3)]:border-t [&>*:nth-child(even)]:border-l border-border">
-                    <InfoCell
-                      compact
-                      label={t('skill.status')}
-                      value={<StatusBadge status={currentVersionStatus} label={currentVersionStatusLabel} />}
-                      icon={<Tag className="h-3.5 w-3.5" />}
-                    />
-                    {currentVersionSummary && (
-                      <InfoCell compact label={t('skill.author')} value={currentVersionSummary.author || '-'} icon={<Globe className="h-3.5 w-3.5" />} />
-                    )}
-                    <InfoCell compact label={t('skill.downloads')} value={String(detail.downloadCount ?? 0)} icon={<Download className="h-3.5 w-3.5" />} />
-                    {currentVersionSummary && (
-                      <InfoCell compact label={t('skill.versionDownloads')} value={String(currentVersionSummary.downloadCount ?? 0)} icon={<Download className="h-3.5 w-3.5" />} />
-                    )}
-                  </div>
-                </CardContent>
-              </Card>
-
-              {currentPipelineInfo && (
-                <Card className="overflow-hidden py-0 gap-0">
-                  <div className="px-4 py-3 border-b bg-muted/30">
-                    <h2 className="text-sm font-semibold flex items-center gap-2">
-                      <GitBranch className="h-4 w-4 text-muted-foreground" />
-                      {t('skill.pipelineStatus')}
-                    </h2>
-                  </div>
-                  <CardContent className="p-3.5">
-                    <PipelineStatusDisplay pipelineInfo={currentPipelineInfo} onRefresh={() => loadDetail()} />
-                  </CardContent>
-                </Card>
-              )}
-
-              <Card className="overflow-hidden py-0 gap-0">
-                <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-muted-foreground" />
-                    {t('common.bizTags')}
-                  </h2>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-6 w-6"
-                    onClick={() => setBizTagDialogOpen(true)}
-                  >
-                    <Pencil className="h-3 w-3" />
-                  </Button>
-                </div>
-                <CardContent className="p-3.5">
-                  {bizTags.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {bizTags.map((tag) => (
-                        <DetailTagChip key={tag} label={tag} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">{t('skill.noBizTags')}</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="overflow-hidden py-0 gap-0">
-                <div className="px-4 py-3 border-b bg-muted/30 flex items-center justify-between">
-                  <h2 className="text-sm font-semibold flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-muted-foreground" />
-                    {t('common.versionLabels.title')}
-                  </h2>
-                  {selectedVersion && (
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-6 w-6"
-                      onClick={() => setLabelDialogOpen(true)}
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </Button>
-                  )}
-                </div>
-                <CardContent className="p-3.5">
-                  {currentVersionLabels.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {currentVersionLabels.map(([key]) => (
-                        <DetailTagChip key={key} label={key} />
-                      ))}
-                    </div>
-                  ) : (
-                    <p className="text-xs text-muted-foreground">
-                      {t('common.versionLabels.noLabels')}
-                    </p>
-                  )}
-                </CardContent>
-              </Card>
-            </div>
-          </div>
+          <SkillResourcePanel
+            resources={isEditingDraft ? editResources : resources}
+            editable={isEditingDraft}
+            onChange={isEditingDraft ? setEditResources : undefined}
+          />
         </TabsContent>
       </Tabs>
 

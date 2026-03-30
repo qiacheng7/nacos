@@ -37,7 +37,7 @@ CREATE TABLE `config_info` (
                                `encrypted_data_key` varchar(1024) NOT NULL DEFAULT '' COMMENT '密钥',
                                PRIMARY KEY (`id`),
                                UNIQUE KEY `uk_configinfo_datagrouptenant` (`data_id`,`group_id`,`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='config_info';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_info';
 
 /******************************************/
 /*   表名称 = config_info  since 2.5.0                */
@@ -61,7 +61,7 @@ CREATE TABLE `config_info_gray` (
                                     UNIQUE KEY `uk_configinfogray_datagrouptenantgray` (`data_id`,`group_id`,`tenant_id`,`gray_name`),
                                     KEY `idx_dataid_gmt_modified` (`data_id`,`gmt_modified`),
                                     KEY `idx_gmt_modified` (`gmt_modified`)
-) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8 COMMENT='config_info_gray';
+) ENGINE=InnoDB AUTO_INCREMENT=1 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_info_gray';
 
 /******************************************/
 /*   表名称 = config_tags_relation         */
@@ -77,7 +77,7 @@ CREATE TABLE `config_tags_relation` (
                                         PRIMARY KEY (`nid`),
                                         UNIQUE KEY `uk_configtagrelation_configidtag` (`id`,`tag_name`,`tag_type`),
                                         KEY `idx_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='config_tag_relation';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='config_tag_relation';
 
 /******************************************/
 /*   表名称 = group_capacity               */
@@ -95,7 +95,7 @@ CREATE TABLE `group_capacity` (
                                   `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
                                   PRIMARY KEY (`id`),
                                   UNIQUE KEY `uk_group_id` (`group_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='集群、各Group容量信息表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='集群、各Group容量信息表';
 
 /******************************************/
 /*   表名称 = his_config_info              */
@@ -122,7 +122,7 @@ CREATE TABLE `his_config_info` (
                                    KEY `idx_gmt_create` (`gmt_create`),
                                    KEY `idx_gmt_modified` (`gmt_modified`),
                                    KEY `idx_did` (`data_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='多租户改造';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='多租户改造';
 
 
 /******************************************/
@@ -141,7 +141,7 @@ CREATE TABLE `tenant_capacity` (
                                    `gmt_modified` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '修改时间',
                                    PRIMARY KEY (`id`),
                                    UNIQUE KEY `uk_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='租户容量信息表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='租户容量信息表';
 
 
 CREATE TABLE `tenant_info` (
@@ -156,7 +156,7 @@ CREATE TABLE `tenant_info` (
                                PRIMARY KEY (`id`),
                                UNIQUE KEY `uk_tenant_info_kptenantid` (`kp`,`tenant_id`),
                                KEY `idx_tenant_id` (`tenant_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='tenant_info';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='tenant_info';
 
 CREATE TABLE `users` (
                          `username` varchar(50) NOT NULL PRIMARY KEY COMMENT 'username',
@@ -192,7 +192,7 @@ CREATE TABLE `pipeline_execution` (
     `create_time`   bigint(20)   NOT NULL COMMENT '创建时间',
     `update_time`   bigint(20)   NOT NULL COMMENT '修改时间',
     PRIMARY KEY (`execution_id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='AI资源发布审核Pipeline执行记录';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源发布审核Pipeline执行记录';
 
 /******************************************/
 /*   表名称 = ai_resource                 */
@@ -208,17 +208,18 @@ CREATE TABLE `ai_resource` (
     `namespace_id` varchar(128) NOT NULL DEFAULT '' COMMENT '命名空间ID',
     `biz_tags` varchar(1024) DEFAULT NULL COMMENT '业务标签',
     `ext` longtext DEFAULT NULL COMMENT '扩展信息(JSON)',
+    `c_from` varchar(256) NOT NULL DEFAULT 'local' COMMENT '来源标识(导入/同步来源)',
     `version_info` longtext DEFAULT NULL COMMENT '版本信息(JSON)',
     `meta_version` bigint(20) NOT NULL DEFAULT 1 COMMENT '元数据版本(乐观锁)',
     `scope` varchar(16) NOT NULL DEFAULT 'PRIVATE' COMMENT '可见性: PUBLIC/PRIVATE',
     `owner` varchar(128) NOT NULL DEFAULT '' COMMENT '创建者用户名',
     `download_count` bigint(20) NOT NULL DEFAULT 0 COMMENT '下载次数',
     PRIMARY KEY (`id`),
-    UNIQUE KEY `uk_ai_resource_ns_name_type` (`namespace_id`,`name`,`type`),
+    UNIQUE KEY `uk_ai_resource_ns_name_type` (`namespace_id`,`name`,`type`,`c_from`),
     KEY `idx_ai_resource_name` (`name`),
     KEY `idx_ai_resource_type` (`type`),
     KEY `idx_ai_resource_gmt_modified` (`gmt_modified`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='AI资源元数据表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源元数据表';
 
 /******************************************/
 /*   表名称 = ai_resource_version         */
@@ -242,4 +243,4 @@ CREATE TABLE `ai_resource_version` (
     KEY `idx_ai_resource_ver_name` (`name`),
     KEY `idx_ai_resource_ver_status` (`status`),
     KEY `idx_ai_resource_ver_gmt_modified` (`gmt_modified`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8 COLLATE=utf8_bin COMMENT='AI资源版本表';
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='AI资源版本表';
